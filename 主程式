@@ -1,0 +1,55 @@
+library IEEE;
+use IEEE.std_logic_1164.all;
+use IEEE.numeric_std.all;
+
+entity breath is
+    Port (
+        i_clk : in  STD_LOGIC;
+        i_rst : in  STD_LOGIC;
+        o_led : out STD_LOGIC
+    );
+end breath;
+
+architecture Behavioral of breath is
+    signal pwm_cnt  : unsigned(3 downto 0) := (others => '0');  -- 4 bit
+    signal duty     : unsigned(3 downto 0) := (others => '0');
+    signal dir_up   : std_logic := '1';
+begin
+
+    process(i_clk, i_rst)
+    begin
+        if i_rst = '0' then
+            pwm_cnt <= (others => '0');
+        elsif rising_edge(i_clk) then
+            pwm_cnt <= pwm_cnt + 1;
+        end if;
+    end process;
+
+    process(i_clk, i_rst)
+    begin
+        if i_rst = '0' then
+            duty <= (others => '0');
+            dir_up <= '1';
+        elsif rising_edge(i_clk) then
+            if pwm_cnt = "0010" then  -- 每 2 個 clock 更新亮度
+                if dir_up = '1' then
+                    if duty = "1111" then
+                        dir_up <= '0';
+                        duty <= duty - 1;
+                    else
+                        duty <= duty + 1;
+                    end if;
+                else
+                    if duty = "0000" then
+                        dir_up <= '1';
+                        duty <= duty + 1;
+                    else
+                        duty <= duty - 1;
+                    end if;
+                end if;
+            end if;
+        end if;
+    end process;
+
+    o_led <= '1' when pwm_cnt < duty else '0';
+end Behavioral;
