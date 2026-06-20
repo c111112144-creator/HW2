@@ -1,0 +1,67 @@
+import cv2
+import numpy as np
+
+def detect_road_perfect(image_path="/content/road.png", output_path="road_output.jpg"):
+    img = cv2.imread(image_path)
+    if img is None: return
+    
+    h, w = img.shape[:2]
+    output_img = img.copy()
+    
+    # 1. 影像預處理：轉灰階 + 強模糊（抹平柏油路表面的粗糙顆粒）
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (13, 13), 0) 
+    
+    # 2. 計算梯度（利用路左右兩側的白線和草叢邊緣作為高山阻礙）
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    gradient = cv2.morphologyEx(blurred, cv2.MORPH_GRADIENT, kernel)
+    
+    # 3. 初始化標籤矩陣
+    markers = np.zeros(gray.shape, dtype=np.int32)
+    
+    # ----------------------------------------------------
+    # 【精準下種子點】
+    # ----------------------------------------------------
+    # 標籤 1（絕對背景）：直接把頂部 35% 的天空、遠景、高架橋劃為背景
+    markers[0:int(h * 0.35), :] = 1
+    
+    # 標籤 2（確定馬路）：把種子點縮小，並壓在畫面「最底部中央」
+    # 這樣可以完美避開「橋南路」三個白字，從純柏油路面開始注水
+    road_seed_x1 = int(w * 0.45)
+    road_seed_x2 = int(w * 0.55)
+    road_seed_y1 = int(h * 0.93) # 壓在最底部
+    road_seed_y2 = int(h * 0.98)
+    cv2.rectangle(markers, (road_seed_x1, road_seed_y1), (road_seed_x2, road_seed_y2), 2, -1)
+    
+    # 4. 執行注水點法
+    cv2.watershed(img, markers)
+    
+    # 提取馬路區域
+    road_mask = np.zeros(gray.shape, dtype=np.uint8)
+    road_mask[markers == 2] = 255
+    
+    # 5. 後處理：強效閉運算（用大特徵強行吞掉路中間的黃線、白字、陰影）
+    kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (41, 41)) # 放大核心
+    road_mask = cv2.morphologyEx(road_mask, cv2.MORPH_CLOSE, kernel_close, iterations=2)
+    
+    # 6. 尋找馬路輪廓
+    contours, _ = cv2.findContours(road_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if len(contours) == 0:
+        print("未偵測到馬路。")
+        return
+    
+    largest_contour = max(contours, key=cv2.contourArea)
+    
+    # 7. 多邊形逼近（拉直射線）
+    # 這張圖是筆直延伸的馬路，我們把門檻拉高到 0.04，強迫它收束成漂亮的幾何梯形
+    perimeter = cv2.arcLength(largest_contour, True)
+    epsilon = 0.01 * perimeter 
+    approx_polygon = cv2.approxPolyDP(largest_contour, epsilon, True)
+    
+    # 8. 繪製並儲存
+    cv2.drawContours(output_img, [approx_polygon], -1, (0, 0, 255), 3)
+    cv2.imwrite(output_path, output_img)
+    print("完成！")
+
+# 執行
+detect_road_perfect("road.png")
